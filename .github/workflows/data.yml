@@ -89,4 +89,4 @@ jobs:
       # Pages publishes at most 1 GB and times the deploy step out at 10 minutes.
       # If this is what fails, it is that ceiling arriving, not a flake.
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
