@@ -55,7 +55,6 @@ export interface Country {
 	name: string;
 	iso3: string;
 	areas: number;
-	thumb: { d: string; viewBox: string };
 }
 
 /** A continent as the index lists it — the map itself holds the geometry. */

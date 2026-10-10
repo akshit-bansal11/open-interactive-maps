@@ -18,6 +18,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { COUNTRY_DEPTH, fileOf, isPacked } from "../src/lib/pack.mjs";
 import { CONTINENTS, continentName, continentOf } from "./lib/continents.mjs";
 import {
 	bbox,
@@ -32,34 +33,46 @@ import {
 	uniqueSlug,
 } from "./lib/geo.mjs";
 
-// National datasets are hundreds of MB parsed — re-exec with room to hold them.
+// National datasets are hundreds of MB parsed — India's villages alone are a
+// 467 MB file — so re-exec with room to hold them.
 if (!process.env.MAPS_BUILD_HEAP) {
+	const heap = process.env.MAPS_HEAP_MB ?? "8192";
 	execFileSync(
 		process.execPath,
-		["--max-old-space-size=8192", ...process.argv.slice(1)],
+		[`--max-old-space-size=${heap}`, ...process.argv.slice(1)],
 		{ stdio: "inherit", env: { ...process.env, MAPS_BUILD_HEAP: "1" } },
 	);
 	process.exit(0);
 }
 
 /**
- * How deep to drill. ADM5 exists for four countries and is left out on purpose:
- * India's alone is 649,771 villages, more than every other level of every other
- * country put together.
+ * How deep to drill: everything geoBoundaries publishes. ADM5 is village level,
+ * and India's 649,771 villages are most of it. `MAPS_MAX_LEVEL=3` makes a quick
+ * local build that skips them.
  */
-const MAX_LEVEL = Number(process.env.MAPS_MAX_LEVEL ?? 4);
+const MAX_LEVEL = Number(process.env.MAPS_MAX_LEVEL ?? 5);
 const LEVELS = Array.from({ length: MAX_LEVEL + 1 }, (_, i) => `ADM${i}`);
+
+/**
+ * Levels left out of a country's ladder because they do not nest in it.
+ *
+ * India's ADM4 is the community development block, a rural-development unit
+ * that divides a district in parallel with the sub-district rather than inside
+ * it. Filed by containment it left 891 sub-districts with no children and put
+ * the villages under the wrong parent. A village belongs to a sub-district.
+ */
+const SKIP_LEVELS = { IND: [4] };
+
+/**
+ * Areas this many segments deep or shallower are searchable by name from
+ * anywhere in their country. Deeper ones — villages — are found on their own
+ * parent's map: an index of every village is tens of megabytes.
+ */
+const SEARCH_DEPTH = 6;
 
 const RELEASE = "gbOpen";
 const CACHE = ".cache";
 const OUT = "data";
-/**
- * Maps this many segments deep or deeper are written together, one file per
- * first-level area — "world/asia/india/punjab" holds Punjab and everything
- * under it. A quarter of a million maps as loose files is more than a static
- * host wants to publish; a few thousand packs is not.
- */
-const PACK_DEPTH = 4;
 
 /**
  * OpenStreetMap fills the outlines geoBoundaries has no ADM0 file for — India
@@ -76,8 +89,6 @@ const OSM = {
 /** Longest side of a map's canvas; the other side follows the region's shape. */
 const SIZE = 1000;
 const PADDING = 12;
-/** Country thumbnail for the picker strip, drawn coarse and small. */
-const THUMB = { size: 64, padding: 2, tolerance: 0.35, minArea: 0.4 };
 const TOLERANCE = 0.3; // simplification tolerance, in viewBox px
 const MIN_AREA = 0.3; // drop slivers smaller than this, in viewBox px²
 /** Vertices sampled per child when voting for its parent. */
@@ -332,10 +343,9 @@ function writeFile(id, value) {
 
 /** Shallow maps get a file each; deeper ones wait in their pack. */
 function writeJson(id, value) {
-	const parts = id.split("/");
-	if (parts.length < PACK_DEPTH) return writeFile(id, value);
+	if (!isPacked(id)) return writeFile(id, value);
 
-	const key = parts.slice(0, PACK_DEPTH).join("/");
+	const key = fileOf(id);
 	if (!packs.has(key)) packs.set(key, {});
 	packs.get(key)[id] = value;
 }
@@ -438,7 +448,9 @@ function emit(area, id, ownLabel, trail, levels, attribution, search) {
 	for (const feature of features) {
 		// Only a feature with its own map is worth offering as a search hit.
 		const drillable = levels.length > 1 && feature.children > 0;
-		search.push([feature.name, feature.id, area.name, drillable ? 1 : 0]);
+		if (feature.id.split("/").length <= SEARCH_DEPTH) {
+			search.push([feature.name, feature.id, area.name, drillable ? 1 : 0]);
+		}
 		if (!drillable) continue;
 		written += emit(
 			feature.child,
@@ -458,6 +470,7 @@ async function buildCountry(country, id, parents, catalogue) {
 
 	const levels = [];
 	for (let i = 1; i <= MAX_LEVEL; i++) {
+		if (SKIP_LEVELS[country.iso3]?.includes(i)) continue;
 		const level = await loadLevel(catalogue.get(`ADM${i}`).get(country.iso3), `ADM${i}`);
 		// A gap is skipped rather than ending the ladder, so a country published
 		// at ADM2 only still gets a map.
@@ -488,6 +501,7 @@ async function buildCountry(country, id, parents, catalogue) {
 
 	// Flat index for the site's search box: [name, id, parent, drillable].
 	const search = [];
+	const areas = levels.reduce((total, level) => total + level.areas.length, 0);
 	const files = emit(
 		root,
 		id,
@@ -510,34 +524,15 @@ async function buildCountry(country, id, parents, catalogue) {
 	// browser in one piece.
 	writeFile(`${id}.search`, search);
 
-	// Silhouette for the country picker — the whole country as one coarse shape.
-	const {
-		project: thumbProject,
-		sets: [thumbRings],
-	} = fitAreas([root], {
-		size: THUMB.size,
-		padding: THUMB.padding,
-		minArea: THUMB.minArea,
-	});
-	const thumb = {
-		d: toPath(thumbRings, thumbProject, {
-			tolerance: THUMB.tolerance,
-			minArea: THUMB.minArea,
-			precision: 0,
-		}),
-		viewBox: `0 0 ${thumbProject.width} ${thumbProject.height}`,
-	};
-
 	return {
 		id,
 		name: country.name,
 		iso3: country.iso3,
-		areas: search.length,
+		areas,
 		/** How many areas the country's own map holds, for the continent listing. */
 		topLevel: levels[0].areas.length,
 		files,
 		search,
-		thumb,
 	};
 }
 
@@ -654,13 +649,14 @@ async function main() {
 		results.set(country.iso3, result);
 		// The global index stops at first-level areas; deeper hits come from the
 		// country's own file.
-		search.push(...result.search.filter(([, id]) => id.split("/").length === PACK_DEPTH));
+		search.push(
+			...result.search.filter(([, id]) => id.split("/").length === COUNTRY_DEPTH + 1),
+		);
 		built.push({
 			id: result.id,
 			name: result.name,
 			iso3: result.iso3,
 			areas: result.areas,
-			thumb: result.thumb,
 		});
 		files += result.files;
 		process.stderr.write(`  wrote ${result.files} map(s), ${result.areas} areas\n`);

@@ -8,30 +8,28 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileOf, isPacked } from "../src/lib/pack.mjs";
 import { buildSvg } from "../src/lib/svg.mjs";
 
 const DATA = "data";
-/** Mirrors PACK_DEPTH in build-maps.mjs: maps this deep share a file. */
-const PACK_DEPTH = 4;
-
 const readFile = (id) => JSON.parse(readFileSync(join(DATA, `${id}.json`), "utf8"));
 
-// The walk goes depth-first, so one pack at a time is all that is ever needed.
-let pack = { key: "", maps: {} };
+// The walk goes depth-first, so the last few packs are all that is ever needed:
+// a state's, and the district's it is currently inside.
+const packs = new Map();
 function packOf(id) {
-	const key = id.split("/").slice(0, PACK_DEPTH).join("/");
-	if (pack.key !== key) {
-		const file = join(DATA, `${key}.json`);
-		pack = { key, maps: existsSync(file) ? readFile(key) : {} };
+	const key = fileOf(id);
+	if (!packs.has(key)) {
+		if (packs.size >= 4) packs.delete(packs.keys().next().value);
+		packs.set(key, existsSync(join(DATA, `${key}.json`)) ? readFile(key) : {});
 	}
-	return pack.maps;
+	return packs.get(key);
 }
 
-const packed = (id) => id.split("/").length >= PACK_DEPTH;
 const has = (id) =>
-	packed(id) ? id in packOf(id) : existsSync(join(DATA, `${id}.json`));
+	isPacked(id) ? id in packOf(id) : existsSync(join(DATA, `${id}.json`));
 const read = (id) => {
-	const map = packed(id) ? packOf(id)[id] : readFile(id);
+	const map = isPacked(id) ? packOf(id)[id] : readFile(id);
 	assert.ok(map, `${id}: no such map`);
 	return map;
 };
@@ -268,6 +266,17 @@ assert.ok(
 	read(`${INDIA}/punjab/bathinda`).features.some((f) => f.name === "Talwandi Sabo"),
 	"Bathinda should drill down to its sub-districts",
 );
+// Village level, when it was built: villages hang off the sub-district, not off
+// the community development block that geoBoundaries publishes in between.
+const talwandi = `${INDIA}/punjab/bathinda/talwandi-sabo`;
+if (has(talwandi)) {
+	const villages = read(talwandi);
+	assert.equal(villages.childLabel, "village", "a sub-district holds villages");
+	assert.ok(
+		villages.features.length > 20,
+		`Talwandi Sabo lists ${villages.features.length} villages — too few to be right`,
+	);
+}
 
 // The export has to stand on its own: well-formed, self-describing, and with
 // nothing of the viewer left in it.
