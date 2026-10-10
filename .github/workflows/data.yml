@@ -1,0 +1,83 @@
+name: Build and publish map data
+
+# The maps are built here and published to GitHub Pages as plain JSON; the app on
+# Vercel fetches them. Not built on the host: a full build is about a thousand
+# downloads and can run for hours, and a quarter of a million maps do not belong
+# in a deployment bundle. Actions allows a job six hours and a 10 GB cache.
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/**
+      - src/lib/svg.mjs
+      - .github/workflows/data.yml
+  # geoBoundaries cuts releases a few times a year; monthly keeps up without
+  # hammering it.
+  schedule:
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A queued run should replace a pending one, never interleave with a deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # A hit here makes the data step mostly offline. Keyed per run with a
+      # prefix fallback, so each run starts from the last one's downloads and
+      # saves whatever it added.
+      - name: Restore boundary downloads
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: boundaries-${{ github.run_id }}
+          restore-keys: boundaries-
+
+      - run: npm ci
+
+      # The catalogue names the current release's files; a stale copy would pin
+      # the build to old geometry forever.
+      - name: Refresh the catalogue
+        run: rm -f .cache/catalogue-*.json
+
+      - run: npm run data
+
+      - run: npm run data:check
+
+      - name: Report what was built
+        run: |
+          echo "files:    $(find data -name '*.json' | wc -l)"
+          echo "bytes:    $(find data -type f -printf '%s\n' | awk '{s+=$1} END {print s}')"
+          echo "largest:  $(find data -type f -printf '%s %p\n' | sort -n | tail -1)"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: data
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # Pages publishes at most 1 GB and times the deploy step out at 10 minutes.
+      # If this is what fails, it is that ceiling arriving, not a flake.
+      - id: deployment
+        uses: actions/deploy-pages@v4
