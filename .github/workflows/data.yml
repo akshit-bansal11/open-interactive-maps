@@ -47,7 +47,7 @@ jobs:
       # A hit here makes the data step mostly offline. Each run starts from the
       # last one's downloads.
       - name: Restore boundary downloads
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .cache
           key: boundaries-${{ github.run_id }}
@@ -70,7 +70,7 @@ jobs:
       # that fails later does not have to fetch everything again.
       - name: Save boundary downloads
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .cache
           key: boundaries-${{ github.run_id }}
