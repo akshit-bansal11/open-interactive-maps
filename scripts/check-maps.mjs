@@ -50,7 +50,22 @@ let maps = 0;
 let areas = 0;
 let unplotted = 0;
 
+/**
+ * Problems found on the walk are collected rather than thrown. A full build
+ * takes hours, and learning about one bad map per run would take days.
+ */
+const problems = [];
+
 function checkMap(id, expectedName) {
+	try {
+		checkOne(id, expectedName);
+	} catch (error) {
+		if (!(error instanceof assert.AssertionError)) throw error;
+		problems.push(error.message);
+	}
+}
+
+function checkOne(id, expectedName) {
 	const map = read(id);
 	maps++;
 
@@ -111,6 +126,12 @@ function checkMap(id, expectedName) {
 
 // One walk from the world down: continents, then countries, then admin levels.
 checkMap("world", "World");
+if (problems.length > 0) {
+	console.error(
+		`${problems.length} map(s) failed:\n${problems.slice(0, 200).join("\n")}`,
+	);
+	process.exit(1);
+}
 
 const index = readFile("index");
 assert.ok(index.countries.length > 0, "no countries built");

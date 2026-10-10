@@ -39,11 +39,10 @@ jobs:
           node-version: 24
           cache: npm
 
-      # A hit here makes the data step mostly offline. Keyed per run with a
-      # prefix fallback, so each run starts from the last one's downloads and
-      # saves whatever it added.
+      # A hit here makes the data step mostly offline. Each run starts from the
+      # last one's downloads.
       - name: Restore boundary downloads
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .cache
           key: boundaries-${{ github.run_id }}
@@ -57,6 +56,16 @@ jobs:
         run: rm -f .cache/catalogue-*.json
 
       - run: npm run data
+
+      # Saved before the check and whether or not the build finished: the
+      # downloads are the slow part, and a run that fails later should not have
+      # to fetch them again.
+      - name: Save boundary downloads
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .cache
+          key: boundaries-${{ github.run_id }}
 
       - run: npm run data:check
 
