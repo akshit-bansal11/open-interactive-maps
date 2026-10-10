@@ -16,6 +16,11 @@ on:
   schedule:
     - cron: "0 3 1 * *"
   workflow_dispatch:
+    inputs:
+      countries:
+        description: ISO3 codes to build, space separated. Empty builds every country. The check needs IND.
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -55,7 +60,11 @@ jobs:
       - name: Refresh the catalogue
         run: rm -f .cache/catalogue-*.json
 
-      - run: npm run data
+      # Through the environment, never interpolated into the script: an input is
+      # text someone typed.
+      - run: npm run data -- $COUNTRIES
+        env:
+          COUNTRIES: ${{ inputs.countries }}
 
       # Saved before the check and whether or not the build finished: the
       # downloads are the slow part, and a run that fails later should not have
