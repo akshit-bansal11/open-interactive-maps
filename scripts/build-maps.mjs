@@ -350,24 +350,68 @@ function flushPacks() {
  * children of its own. Appends every area it names to `search`. Returns the
  * number of files written.
  */
+/**
+ * Fits a map's areas into their canvas and returns each area's rings as they
+ * should be drawn. Two things a plain fit gets wrong:
+ *
+ * A country that straddles the antimeridian — Fiji, Kiribati, the United States
+ * by way of the Aleutians — spans the whole globe in raw longitude, so it is
+ * re-centred on its own meridian and cut at the far side first.
+ *
+ * And an islet too small to draw still stretches the canvas to reach it, which
+ * leaves the map floating in margin: Japan fitted to Minamitorishima fills
+ * seven tenths of its box. So the fit is taken again over what will actually be
+ * drawn. An area's largest ring always counts, however small, or a far-flung
+ * island territory would vanish from its parent's map.
+ */
+function fitAreas(areas, { size, padding, minArea }) {
+	let sets = areas.map((area) => area.rings);
+	let lambda0;
+	const [west, , east] = bbox(sets.flat());
+	if (east - west > 180) {
+		lambda0 = centralMeridian(sets.flat());
+		sets = sets.map((rings) => splitAtAntimeridian(rings, lambda0));
+	}
+
+	let project = fitProjection(sets.flat(), { size, padding });
+	const drawn = sets.map((rings) => {
+		const sizes = rings.map((ring) => ringArea(ring.map(project)));
+		const largest = Math.max(...sizes);
+		return rings.filter((_, i) => sizes[i] >= minArea || sizes[i] === largest);
+	});
+	if (drawn.flat().length < sets.flat().length) {
+		project = fitProjection(drawn.flat(), { size, padding });
+	}
+
+	return {
+		project,
+		sets: drawn,
+		params: {
+			...project.params,
+			...(lambda0 === undefined ? {} : { lambda0: Number(lambda0.toFixed(3)) }),
+		},
+	};
+}
+
 function emit(area, id, ownLabel, trail, levels, attribution, search) {
 	const level = levels[0];
-	const project = fitProjection(
-		area.children.flatMap((child) => child.rings),
-		{ size: SIZE, padding: PADDING },
-	);
+	const { project, sets, params } = fitAreas(area.children, {
+		size: SIZE,
+		padding: PADDING,
+		minArea: MIN_AREA,
+	});
 
 	// An area whose path comes out empty is genuinely sub-pixel at this zoom
 	// (Lakshadweep on a map of India). It stays in the list and keeps its own
 	// map file — it just isn't drawn here.
 	const taken = new Set();
-	const features = area.children.map((child) => {
+	const features = area.children.map((child, i) => {
 		const slug = uniqueSlug(child.name, taken);
 		return {
 			child,
 			id: `${id}/${slug}`,
 			name: child.name,
-			d: toPath(child.rings, project, {
+			d: toPath(sets[i], project, {
 				tolerance: TOLERANCE,
 				minArea: MIN_AREA,
 			}),
@@ -384,7 +428,7 @@ function emit(area, id, ownLabel, trail, levels, attribution, search) {
 		width: project.width,
 		height: project.height,
 		viewBox: `0 0 ${project.width} ${project.height}`,
-		projection: project.params,
+		projection: params,
 		features: features.map(({ child: _child, ...rest }) => rest),
 		...attribution,
 	});
@@ -467,12 +511,16 @@ async function buildCountry(country, id, parents, catalogue) {
 	writeFile(`${id}.search`, search);
 
 	// Silhouette for the country picker — the whole country as one coarse shape.
-	const thumbProject = fitProjection(root.rings, {
+	const {
+		project: thumbProject,
+		sets: [thumbRings],
+	} = fitAreas([root], {
 		size: THUMB.size,
 		padding: THUMB.padding,
+		minArea: THUMB.minArea,
 	});
 	const thumb = {
-		d: toPath(root.rings, thumbProject, {
+		d: toPath(thumbRings, thumbProject, {
 			tolerance: THUMB.tolerance,
 			minArea: THUMB.minArea,
 			precision: 0,

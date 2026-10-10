@@ -122,7 +122,8 @@ Two halves, deployed separately:
 
 - **The data** is built by `.github/workflows/data.yml` and published to GitHub
   Pages. It runs on Actions rather than on the host because a full build is about
-  a thousand downloads and the result is hundreds of megabytes.
+  a thousand downloads and the result is hundreds of megabytes. A full run takes
+  about ten minutes.
 - **The app** deploys to Vercel. It prerenders nothing: each map page is rendered
   the first time it is requested, from one fetch to the data host, and cached.
 

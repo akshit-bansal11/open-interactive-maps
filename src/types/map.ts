@@ -20,6 +20,8 @@ interface ProjectionFit {
 export interface EquirectangularProjection extends ProjectionFit {
 	kind: "equirectangular";
 	cosLat: number;
+	/** Set when the region straddles the antimeridian and was re-centred. */
+	lambda0?: number;
 }
 
 /** The world and continent tiers, centred on `lambda0`. */

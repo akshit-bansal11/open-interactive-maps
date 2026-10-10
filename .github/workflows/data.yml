@@ -2,8 +2,8 @@ name: Build and publish map data
 
 # The maps are built here and published to GitHub Pages as plain JSON; the app on
 # Vercel fetches them. Not built on the host: a full build is about a thousand
-# downloads and can run for hours, and a quarter of a million maps do not belong
-# in a deployment bundle. Actions allows a job six hours and a 10 GB cache.
+# downloads, and hundreds of megabytes of maps do not belong in a deployment
+# bundle. A full run takes about ten minutes.
 on:
   push:
     branches: [main]
@@ -35,7 +35,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -66,9 +66,8 @@ jobs:
         env:
           COUNTRIES: ${{ inputs.countries }}
 
-      # Saved before the check and whether or not the build finished: the
-      # downloads are the slow part, and a run that fails later should not have
-      # to fetch them again.
+      # Saved before the check and whether or not the build finished, so a run
+      # that fails later does not have to fetch everything again.
       - name: Save boundary downloads
         if: always()
         uses: actions/cache/save@v4
