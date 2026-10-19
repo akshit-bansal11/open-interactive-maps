@@ -6,6 +6,8 @@ import { clampView, IDENTITY, panBy, type View, zoomAt } from "@/lib/view.mjs";
 /** Pointer travel, in CSS px, before a press counts as a drag rather than a click. */
 const DRAG_THRESHOLD = 4;
 const WHEEL_SPEED = 0.0015;
+/** A revealed point is kept this share of the view away from its edges. */
+const EDGE = 0.1;
 
 /**
  * Pan and zoom for one SVG map, expressed as the viewBox to draw. Wheel zooms on
@@ -86,6 +88,21 @@ export function usePanZoom(width: number, height: number) {
 		pointers.current.delete(event.pointerId);
 	};
 
+	const reveal = useCallback(
+		(x: number, y: number) =>
+			update((v) => {
+				const w = width / v.k;
+				const h = height / v.k;
+				const inside =
+					x > v.x + w * EDGE &&
+					x < v.x + w * (1 - EDGE) &&
+					y > v.y + h * EDGE &&
+					y < v.y + h * (1 - EDGE);
+				return inside ? v : panBy(v, x - (v.x + w / 2), y - (v.y + h / 2));
+			}),
+		[update, width, height],
+	);
+
 	return {
 		svgRef,
 		view,
@@ -95,6 +112,8 @@ export function usePanZoom(width: number, height: number) {
 		/** Zoom about the centre of what is on screen. */
 		zoom: (factor: number) =>
 			update((v) => zoomAt(v, factor, v.x + width / v.k / 2, v.y + height / v.k / 2)),
+		/** Brings a map point into view, panning only if it is off screen or at the edge. */
+		reveal,
 		/** Pan by a fraction of what is on screen. */
 		pan: (fx: number, fy: number) =>
 			update((v) => panBy(v, (fx * width) / v.k, (fy * height) / v.k)),

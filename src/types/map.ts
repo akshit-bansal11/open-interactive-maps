@@ -32,6 +32,15 @@ export interface EqualEarthProjection extends ProjectionFit {
 
 export type MapProjection = EquirectangularProjection | EqualEarthProjection;
 
+/** What kind of settlement a place is — OpenStreetMap's `place` tag. */
+export type PlaceKind = 0 | 1 | 2; // 0 city, 1 town, 2 village
+
+/**
+ * A settlement from OpenStreetMap, projected into its map's canvas:
+ * [name, kind, x, y, population (0 when untagged), OSM node id].
+ */
+export type Place = [string, PlaceKind, number, number, number, number];
+
 export interface MapFile {
 	id: string;
 	name: string;
@@ -45,9 +54,24 @@ export interface MapFile {
 	viewBox: string;
 	projection: MapProjection;
 	features: MapFeature[];
+	/**
+	 * Settlements inside this map's region. Admin maps carry cities and towns;
+	 * a settlement map (one with an `outline`) carries every city, town and
+	 * village of one lowest-level area. Absent when there are none.
+	 */
+	places?: Place[];
+	/**
+	 * Set on a settlement map only: the area's own outline, drawn behind its
+	 * places. A settlement map has `features: []` and `childLabel`
+	 * "Settlements"; its `level` is the area's own level, e.g. "District".
+	 */
+	outline?: string;
 	source: string;
 	sourceUrl: string;
 	license: string;
+	/** Credit for the settlement layer, when the map has places. */
+	placesSource?: string;
+	placesLicense?: string;
 }
 
 export interface Country {
@@ -78,3 +102,10 @@ export interface MapIndex {
  * `<id>.search.json` covers everything inside it.
  */
 export type SearchRow = [string, string, string, 0 | 1];
+
+/*
+ * Places in search: a city or town row's id is "<map id>/~n<osm node id>" with
+ * drillable 0, so the viewer opens "<map id>" (its parent) and lights the place,
+ * whose SVG element carries data-id = that same id.
+ */
+export const placeId = (mapId: string, osmId: number) => `${mapId}/~n${osmId}`;

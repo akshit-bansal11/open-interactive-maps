@@ -10,8 +10,15 @@
  * geoBoundaries ships no parent link on a feature, so each child is matched to
  * the parent that contains most of its outline.
  *
+ * Below the deepest boundary level sit the settlements: cities, towns and
+ * villages from OpenStreetMap, filed under the deepest area that contains them.
+ * Admin maps carry their cities and towns; an area with nothing deeper than
+ * itself gets a map of its own listing every settlement in it. See the PLACES
+ * notes below.
+ *
  *   node scripts/build-maps.mjs            # every country
  *   node scripts/build-maps.mjs IND USA    # just these, plus the world tiers
+ *   MAPS_PLACES=0 node scripts/build-maps.mjs IND   # boundaries only, no Overpass
  *
  * Downloads are cached in .cache/, so a re-run is offline and fast.
  */
@@ -32,6 +39,16 @@ import {
 	toPath,
 	uniqueSlug,
 } from "./lib/geo.mjs";
+import { ALL_KINDS, loadPlaces, NOTABLE_KINDS } from "./lib/osm-places.mjs";
+import {
+	fileInto,
+	gather,
+	PLACE_CAP,
+	searchRows,
+	select,
+	tupleOf,
+	viewOf,
+} from "./lib/places.mjs";
 
 // National datasets are hundreds of MB parsed — India's villages alone are a
 // 467 MB file — so re-exec with room to hold them.
@@ -69,6 +86,27 @@ const SKIP_LEVELS = { IND: [4] };
  * parent's map: an index of every village is tens of megabytes.
  */
 const SEARCH_DEPTH = 6;
+
+/**
+ * Whether to build the settlement layer. `MAPS_PLACES=0` leaves it out — no
+ * Overpass requests, no `places` in any map — for a quick local build of just
+ * the boundaries.
+ */
+const PLACES = process.env.MAPS_PLACES !== "0";
+
+/**
+ * geoBoundaries' ADM5 is village polygons, published for India, France, Rwanda
+ * and the Central African Republic. A country that has them gets no OSM
+ * villages at all — they would duplicate the polygons — and no settlement maps
+ * under its ADM5 areas; its cities and towns still go on the admin maps.
+ */
+const VILLAGE_LEVEL = 5;
+
+/**
+ * Countries whose settlement layer could not be fetched, as ISO3 codes. They are
+ * built without it rather than failing, and named in index.json.
+ */
+const placesFailed = [];
 
 const RELEASE = "gbOpen";
 const CACHE = ".cache";
@@ -147,6 +185,8 @@ async function loadLevel(meta, level) {
 	);
 
 	return {
+		/** The geoBoundaries level number: 5 for ADM5. */
+		adm: Number(level.slice(3)),
 		// A fair number of deep levels are published with no name for what they
 		// are, or with the literal string "Unknown".
 		label: /^(unknown)?$/i.test(meta.boundaryCanonical ?? "")
@@ -356,11 +396,6 @@ function flushPacks() {
 }
 
 /**
- * Writes the map of `area`'s children, then recurses into each child that has
- * children of its own. Appends every area it names to `search`. Returns the
- * number of files written.
- */
-/**
  * Fits a map's areas into their canvas and returns each area's rings as they
  * should be drawn. Two things a plain fit gets wrong:
  *
@@ -403,13 +438,122 @@ function fitAreas(areas, { size, padding, minArea }) {
 	};
 }
 
-function emit(area, id, ownLabel, trail, levels, attribution, search) {
+/**
+ * The credit a map carries for its settlements, which come from a different
+ * source and under a different licence than its boundaries.
+ */
+const creditOf = (fetched) => ({
+	placesSource: `OpenStreetMap — place=city/town/village nodes via the Overpass API (${fetched})`,
+	placesLicense: OSM.license,
+});
+
+/**
+ * How many countries in a row may fail their fetch before the rest are skipped.
+ * Each failure costs about two minutes of retries, so an Overpass outage would
+ * otherwise eat the whole job; one country's bad answer is not an outage.
+ */
+const MAX_PLACE_FAILURES = 5;
+let placeFailures = 0;
+
+/**
+ * A country's settlements from Overpass (or the cache), or null when the layer
+ * is switched off or the fetch failed. A failure is logged and recorded rather
+ * than thrown: a country without its cities is still a country.
+ */
+async function fetchPlaces(country, rings, kinds) {
+	if (!PLACES) return null;
+	if (placeFailures >= MAX_PLACE_FAILURES) {
+		placesFailed.push(country.iso3);
+		process.stderr.write(
+			`  places skipped for ${country.iso3}: Overpass is not answering\n`,
+		);
+		return null;
+	}
+
+	try {
+		const loaded = await loadPlaces({
+			iso3: country.iso3,
+			rings,
+			kinds,
+			agent: OSM.agent,
+			cache: CACHE,
+			log: (message) => process.stderr.write(`  ${message}\n`),
+		});
+		placeFailures = 0;
+		return loaded;
+	} catch (error) {
+		placeFailures++;
+		placesFailed.push(country.iso3);
+		process.stderr.write(`  places FAILED ${country.iso3}: ${error.message}\n`);
+		return null;
+	}
+}
+
+/**
+ * The map of one lowest-level area: its own outline with every settlement in it
+ * on top, in the same projection fitted to the area itself. Null when the area
+ * has nothing to show — no places, or none of them land on its canvas — in
+ * which case it stays an undrillable leaf.
+ *
+ * Returns the map and the places it lists, so the caller can tell search where
+ * each one lives.
+ */
+function settlementMap(area, id, label, trail, attribution, credit) {
+	if (!area.filed?.length) return null;
+
+	const { project, sets, params } = fitAreas([area], {
+		size: SIZE,
+		padding: PADDING,
+		minArea: MIN_AREA,
+	});
+	// A degenerate outline — every vertex the same — fits to nothing.
+	if (!(project.width > 0 && project.height > 0)) return null;
+
+	const kept = select(area.filed, viewOf(project, params.lambda0));
+	const outline = toPath(sets[0], project, { tolerance: TOLERANCE, minArea: MIN_AREA });
+	if (kept.length === 0 || !outline) return null;
+
+	return {
+		kept,
+		map: {
+			id,
+			name: area.name,
+			level: label,
+			childLabel: "Settlements",
+			parents: trail,
+			width: project.width,
+			height: project.height,
+			viewBox: `0 0 ${project.width} ${project.height}`,
+			projection: params,
+			features: [],
+			outline,
+			places: kept.map(tupleOf),
+			...attribution,
+			...credit,
+		},
+	};
+}
+
+/**
+ * Writes the map of `area`'s children, then recurses into each child that has
+ * children of its own. Appends every area it names to `search`. Returns the
+ * number of files written.
+ *
+ * With `credit` set the settlement layer is on. The map then lists its cities
+ * and towns, most important first and capped, and every child with nothing
+ * deeper than itself gets a settlement map of its own — which makes it
+ * drillable — except at the village level, where the polygons already are the
+ * villages. Each place remembers the deepest map that listed it as `home`, which
+ * is where search sends you.
+ */
+function emit(area, id, ownLabel, trail, levels, attribution, search, credit) {
 	const level = levels[0];
 	const { project, sets, params } = fitAreas(area.children, {
 		size: SIZE,
 		padding: PADDING,
 		minArea: MIN_AREA,
 	});
+	const nextTrail = [...trail, { id, name: area.name }];
 
 	// An area whose path comes out empty is genuinely sub-pixel at this zoom
 	// (Lakshadweep on a map of India). It stays in the list and keeps its own
@@ -417,17 +561,27 @@ function emit(area, id, ownLabel, trail, levels, attribution, search) {
 	const taken = new Set();
 	const features = area.children.map((child, i) => {
 		const slug = uniqueSlug(child.name, taken);
+		const featureId = `${id}/${slug}`;
+		const settlement =
+			credit && child.children.length === 0 && level.adm !== VILLAGE_LEVEL
+				? settlementMap(child, featureId, level.label, nextTrail, attribution, credit)
+				: null;
 		return {
 			child,
-			id: `${id}/${slug}`,
+			settlement,
+			id: featureId,
 			name: child.name,
 			d: toPath(sets[i], project, {
 				tolerance: TOLERANCE,
 				minArea: MIN_AREA,
 			}),
-			children: child.children.length,
+			children: settlement ? settlement.map.places.length : child.children.length,
 		};
 	});
+
+	const kept = credit
+		? select(gather(area), viewOf(project, params.lambda0), PLACE_CAP)
+		: [];
 
 	writeJson(id, {
 		id,
@@ -439,13 +593,27 @@ function emit(area, id, ownLabel, trail, levels, attribution, search) {
 		height: project.height,
 		viewBox: `0 0 ${project.width} ${project.height}`,
 		projection: params,
-		features: features.map(({ child: _child, ...rest }) => rest),
+		features: features.map(({ child: _child, settlement: _settlement, ...rest }) => rest),
+		...(kept.length > 0 ? { places: kept.map(tupleOf) } : {}),
 		...attribution,
+		...(kept.length > 0 ? credit : {}),
 	});
+	// Deeper maps claim their places later and win: a place's home is the deepest
+	// map that lists it.
+	for (const { place } of kept) place.home = id;
 
 	let written = 1;
-	const nextTrail = [...trail, { id, name: area.name }];
 	for (const feature of features) {
+		if (feature.settlement) {
+			writeJson(feature.id, feature.settlement.map);
+			for (const { place } of feature.settlement.kept) place.home = feature.id;
+			written++;
+			if (feature.id.split("/").length <= SEARCH_DEPTH) {
+				search.push([feature.name, feature.id, area.name, 1]);
+			}
+			continue;
+		}
+
 		// Only a feature with its own map is worth offering as a search hit.
 		const drillable = levels.length > 1 && feature.children > 0;
 		if (feature.id.split("/").length <= SEARCH_DEPTH) {
@@ -460,6 +628,7 @@ function emit(area, id, ownLabel, trail, levels, attribution, search) {
 			levels.slice(1),
 			attribution,
 			search,
+			credit,
 		);
 	}
 	return written;
@@ -499,6 +668,19 @@ async function buildCountry(country, id, parents, catalogue) {
 		children: levels[0].areas,
 	};
 
+	// A country with village polygons has no use for OSM's villages.
+	const loaded = await fetchPlaces(
+		country,
+		root.rings,
+		levels.some((level) => level.adm === VILLAGE_LEVEL) ? NOTABLE_KINDS : ALL_KINDS,
+	);
+	if (loaded) {
+		const { filed, dropped } = fileInto(loaded.places, root.children);
+		process.stderr.write(
+			`  places: ${loaded.places.length} fetched, ${filed} filed, ${dropped} outside every area\n`,
+		);
+	}
+
 	// Flat index for the site's search box: [name, id, parent, drillable].
 	const search = [];
 	const areas = levels.reduce((total, level) => total + level.areas.length, 0);
@@ -517,12 +699,24 @@ async function buildCountry(country, id, parents, catalogue) {
 			license: [...new Set(levels.map((l) => l.license))].join(" · "),
 		},
 		search,
+		loaded ? creditOf(loaded.fetched) : null,
 	);
 	flushPacks();
+
+	// Cities and towns are searchable by name from anywhere in their country;
+	// villages are found in their settlement map's own list.
+	const found = loaded ? searchRows(loaded.places) : { rows: [], cities: [] };
+	search.push(...found.rows);
 
 	// A country's own search index: the whole world's is far too big to hand a
 	// browser in one piece.
 	writeFile(`${id}.search`, search);
+	const listed = loaded ? loaded.places.filter((place) => place.home).length : 0;
+	if (loaded) {
+		process.stderr.write(
+			`  places: ${listed} listed on a map, ${found.rows.length} searchable\n`,
+		);
+	}
 
 	return {
 		id,
@@ -533,6 +727,76 @@ async function buildCountry(country, id, parents, catalogue) {
 		topLevel: levels[0].areas.length,
 		files,
 		search,
+		cities: found.cities,
+		places: listed,
+	};
+}
+
+/**
+ * A country geoBoundaries has an outline for but no admin levels: one settlement
+ * map at the country's own id, drawn from the outline, listing every city, town
+ * and village in it. Null when it has no places (or the layer is off), in which
+ * case it stays listed on its continent, undrillable.
+ *
+ * Its entry in the index has `areas` set to the number of places on the map —
+ * there are no admin areas, and the number is what its continent shows as the
+ * count to drill into.
+ */
+async function buildOutlineCountry(country, parents) {
+	const loaded = await fetchPlaces(country, country.rings, ALL_KINDS);
+	if (!loaded) return null;
+
+	// The outline stands in for a whole admin hierarchy of one area.
+	const area = {
+		name: country.name,
+		rings: country.rings,
+		box: bbox(country.rings),
+		children: [],
+	};
+	const { filed, dropped } = fileInto(loaded.places, [area]);
+	process.stderr.write(
+		`${country.name} (${country.iso3}) → ${country.id}: outline only, ${loaded.places.length} places fetched, ${filed} filed, ${dropped} outside the border\n`,
+	);
+
+	const attribution = country.osm
+		? {
+				source: "OpenStreetMap — country outline",
+				sourceUrl: "https://www.openstreetmap.org/copyright",
+				license: OSM.license,
+			}
+		: {
+				source: `geoBoundaries ${RELEASE} — Country outline`,
+				sourceUrl: "https://www.geoboundaries.org/countryDownloads.html",
+				license: country.license,
+			};
+	const settlement = settlementMap(
+		area,
+		country.id,
+		"Country",
+		parents,
+		attribution,
+		creditOf(loaded.fetched),
+	);
+	if (!settlement) return null;
+
+	writeJson(country.id, settlement.map);
+	for (const { place } of settlement.kept) place.home = country.id;
+
+	const found = searchRows(loaded.places);
+	writeFile(`${country.id}.search`, found.rows);
+
+	const count = settlement.kept.length;
+	process.stderr.write(`  wrote 1 settlement map, ${count} places\n`);
+	return {
+		id: country.id,
+		name: country.name,
+		iso3: country.iso3,
+		areas: count,
+		topLevel: count,
+		files: 1,
+		search: found.rows,
+		cities: found.cities,
+		places: count,
 	};
 }
 
@@ -598,6 +862,8 @@ async function main() {
 	for (const country of all) {
 		const outline = await loadOutline(country.iso3, country.name, country.adm0);
 		country.rings = outline.rings;
+		country.license = outline.license;
+		country.osm = outline.osm;
 		licenses.add(outline.license);
 		if (outline.osm) fromOsm.push(country.name);
 	}
@@ -613,30 +879,29 @@ async function main() {
 	const built = [];
 	const failed = [];
 	let files = 0;
+	let places = 0;
 
 	// Countries first: the continent listings need to know which of them ended up
 	// drillable, and how many areas each one holds.
 	const results = new Map();
 	for (const country of wanted) {
-		// Nothing below the outline to draw — listed on its continent, not drillable.
-		if (!LEVELS.slice(1).some((level) => catalogue.get(level).has(country.iso3))) {
-			continue;
-		}
+		const parents = [
+			{ id: "world", name: "World" },
+			{ id: `world/${country.continent}`, name: continentName(country.continent) },
+		];
+		const hasLevels = LEVELS.slice(1).some((level) =>
+			catalogue.get(level).has(country.iso3),
+		);
 
 		let result;
 		try {
-			result = await buildCountry(
-				country,
-				country.id,
-				[
-					{ id: "world", name: "World" },
-					{
-						id: `world/${country.continent}`,
-						name: continentName(country.continent),
-					},
-				],
-				catalogue,
-			);
+			// With no admin levels there is nothing to drill into except its
+			// settlements, if it has any; otherwise it is listed on its continent,
+			// not drillable.
+			result = hasLevels
+				? await buildCountry(country, country.id, parents, catalogue)
+				: await buildOutlineCountry(country, parents);
+			if (!result) continue;
 		} catch (error) {
 			// One country's bad download must not cost the other two hundred. It
 			// stays on its continent, undrillable, and is named in the summary.
@@ -650,7 +915,11 @@ async function main() {
 		// The global index stops at first-level areas; deeper hits come from the
 		// country's own file.
 		search.push(
-			...result.search.filter(([, id]) => id.split("/").length === COUNTRY_DEPTH + 1),
+			...result.search.filter(
+				([, id]) => !id.includes("/~n") && id.split("/").length === COUNTRY_DEPTH + 1,
+			),
+			// Plus its cities, which are what people look for first.
+			...result.cities,
 		);
 		built.push({
 			id: result.id,
@@ -659,6 +928,7 @@ async function main() {
 			areas: result.areas,
 		});
 		files += result.files;
+		places += result.places;
 		process.stderr.write(`  wrote ${result.files} map(s), ${result.areas} areas\n`);
 	}
 
@@ -715,12 +985,14 @@ async function main() {
 			countries: countries.length,
 		})),
 		failed,
+		places,
+		placesFailed,
 		builtAt: new Date().toISOString().slice(0, 10),
 	});
 	writeFile("search", search);
 
 	process.stderr.write(
-		`${files} map(s), ${built.length} countries drillable, ${failed.length} failed\n`,
+		`${files} map(s), ${built.length} countries drillable, ${failed.length} failed, ${places} places (${placesFailed.length} countries without)\n`,
 	);
 	for (const line of failed) process.stderr.write(`  ${line}\n`);
 }

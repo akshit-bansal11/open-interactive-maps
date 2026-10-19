@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { DownloadIcon } from "@/components/Icons";
 import { buildSvg, STYLE } from "@/lib/svg.mjs";
 import type { MapFile } from "@/types/map";
 
@@ -46,9 +47,31 @@ function savePng(map: MapFile, scale: number, transparent: boolean, onFail: () =
 
 /** Native disclosure: keyboard and screen-reader behaviour come with it. */
 export function ExportMenu({ map }: { map: MapFile }) {
+	const root = useRef<HTMLDetailsElement>(null);
 	const [scale, setScale] = useState(2);
 	const [transparent, setTransparent] = useState(false);
 	const [said, setSaid] = useState("");
+
+	// A disclosure stays open until told otherwise; a menu should not.
+	useEffect(() => {
+		const close = (event: Event) => {
+			const details = root.current;
+			if (!details?.open) return;
+			if (event instanceof KeyboardEvent) {
+				if (event.key !== "Escape") return;
+				details.open = false;
+				details.querySelector("summary")?.focus();
+			} else if (event.target instanceof Node && !details.contains(event.target)) {
+				details.open = false;
+			}
+		};
+		document.addEventListener("pointerdown", close);
+		document.addEventListener("keydown", close);
+		return () => {
+			document.removeEventListener("pointerdown", close);
+			document.removeEventListener("keydown", close);
+		};
+	}, []);
 
 	const say = (text: string) => {
 		setSaid(text);
@@ -67,8 +90,11 @@ export function ExportMenu({ map }: { map: MapFile }) {
 	};
 
 	return (
-		<details className="export">
-			<summary>Export</summary>
+		<details className="export" ref={root}>
+			<summary className="pill-button">
+				<DownloadIcon width={17} height={17} />
+				<span>Export</span>
+			</summary>
 			<div className="menu">
 				<button type="button" onClick={copy}>
 					Copy SVG
