@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AreaPanel, type Row } from "@/components/AreaPanel";
 import { Attribution } from "@/components/Attribution";
 import { ExportMenu } from "@/components/ExportMenu";
+import { GlobeCanvas } from "@/components/GlobeCanvas";
 import {
 	CloseIcon,
 	GithubIcon,
@@ -108,6 +109,7 @@ export function MapApp() {
 	useEffect(() => show(id), [id, show]);
 
 	const map = load.state === "ready" ? load.map : null;
+	const isGlobe = map?.id === "world" && map.projection.kind === "equal-earth";
 
 	useEffect(() => {
 		document.title = map && map.id !== "world" ? `${map.name} — ${SITE}` : SITE;
@@ -178,7 +180,17 @@ export function MapApp() {
 			</p>
 
 			<main id="main" className="stage">
-				{map && (
+				{/* The world is a globe; a continent and everything inside it is flat. */}
+				{map && isGlobe && (
+					<GlobeCanvas
+						key={map.id}
+						map={map}
+						active={active}
+						onHover={setActive}
+						onOpen={openFeature}
+					/>
+				)}
+				{map && !isGlobe && (
 					<MapCanvas
 						key={map.id}
 						map={map}
