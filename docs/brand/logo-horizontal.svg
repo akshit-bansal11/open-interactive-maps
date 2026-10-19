@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 64" width="400" height="64" role="img" aria-label="Open Interactive Maps">
+<style>
+.o{fill:#6c797a}.s{fill:#002126}.tile{fill:#002126}
+@media (prefers-color-scheme:dark){.o{fill:#c1cbcc}.s{fill:#eef9fc}.tile{fill:#003941}}
+</style>
+<rect width="64" height="64" rx="14" class="tile"/><defs><clipPath id="lk"><circle cx="32" cy="32" r="26"/></clipPath></defs><circle cx="32" cy="32" r="26" fill="#0c8498"/><ellipse cx="32" cy="32" rx="12" ry="26" clip-path="url(#lk)" fill="none" stroke="rgba(142,214,232,0.5)" stroke-width="1.2"/><circle cx="38.36" cy="38.36" r="17" fill="#8ed6e8"/><circle cx="43.67" cy="43.67" r="9.5" fill="#eef9fc"/><circle cx="47.56" cy="47.56" r="5.8" class="tile"/><circle cx="47.56" cy="47.56" r="4" fill="#fab92c"/>
+<text x="76" y="42" font-family="Geist, 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="30" letter-spacing="-1.14"><tspan class="o" font-weight="380">Open</tspan><tspan class="s" font-weight="720" dx="7">Interactive Maps</tspan></text>
+</svg>

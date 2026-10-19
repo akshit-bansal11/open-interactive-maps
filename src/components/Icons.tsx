@@ -129,11 +129,3 @@ export const WarningIcon = (p: P) => (
 		<path d="M12 4 2.8 19.5h18.4L12 4ZM12 10v4.5M12 17.3v.1" />
 	</Icon>
 );
-
-/** The brand mark: a folded map with a pin on it. */
-export const LogoMark = (p: P) => (
-	<Icon {...p}>
-		<path d="M3.5 6.8 9 4.5l6 2.3 5.5-2.3v12.7L15 19.5l-6-2.3-5.5 2.3V6.8Z" />
-		<path d="M9 4.5v12.7M15 6.8v12.7" />
-	</Icon>
-);

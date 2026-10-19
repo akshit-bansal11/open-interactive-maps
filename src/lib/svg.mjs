@@ -14,17 +14,18 @@
 
 /**
  * Baked into every export, so a downloaded file looks like what was on screen in
- * the light theme: warm land, a hairline of ink, a soft-blue sea for the PNG.
+ * the light theme: sand land, a hairline of abyssal teal, a glacier-blue sea for
+ * the PNG. The values are the light roles in docs/brand.md.
  */
 export const STYLE = {
-	fill: "#efeadc",
-	highlight: "#5457e8",
-	stroke: "#26304a",
-	strokeOpacity: "0.35",
+	fill: "#f0e7d2",
+	highlight: "#e69004",
+	stroke: "#003941",
+	strokeOpacity: "0.4",
 	strokeWidth: "1",
-	background: "#dbe7f2",
+	background: "#c0e0e5",
 	/** Settlement dots, by kind: city, town, village. */
-	place: ["#3b3fc4", "#0f8f8a", "#5d6b82"],
+	place: ["#880d0d", "#0d7176", "#6c8492"],
 	placeStroke: "#ffffff",
 };
 

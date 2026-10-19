@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Open Interactive Maps">
+	<title>Open Interactive Maps</title>
+	<defs>
+		<clipPath id="globe"><circle cx="32" cy="32" r="26"/></clipPath>
+	</defs>
+	<!-- tile: a fixed abyssal square, so the icon holds on light and dark browser tabs -->
+	<rect width="64" height="64" rx="14" fill="#002126"/>
+	<!-- nested discs, each internally tangent to the last at one point on the 45° axis -->
+	<circle cx="32" cy="32" r="26" fill="#0c8498"/>
+	<ellipse cx="32" cy="32" rx="12" ry="26" clip-path="url(#globe)" fill="none" stroke="#8ed6e8" stroke-opacity=".5" stroke-width="1.2"/>
+	<circle cx="38.36" cy="38.36" r="17" fill="#8ed6e8"/>
+	<circle cx="43.67" cy="43.67" r="9.5" fill="#eef9fc"/>
+	<!-- the village: a marigold dot at the point where they meet, with a tile-coloured keyline -->
+	<circle cx="47.56" cy="47.56" r="5.8" fill="#002126"/>
+	<circle cx="47.56" cy="47.56" r="4" fill="#fab92c"/>
+</svg>
