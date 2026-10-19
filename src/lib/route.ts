@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { type MouseEvent, useSyncExternalStore } from "react";
 
 /**
  * The map on screen is the URL path — "/world/asia/india" — and nothing else.
@@ -38,3 +38,14 @@ export function navigate(id: string) {
 	window.history.pushState(null, "", hrefOf(id));
 	window.dispatchEvent(new Event(NAVIGATE));
 }
+
+/** A modified click is the browser's — new tab, new window — not a navigation. */
+export const plainClick = (event: MouseEvent) =>
+	!(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey);
+
+/** The onClick for an <a href={hrefOf(id)}> that should move without a request. */
+export const follow = (id: string) => (event: MouseEvent) => {
+	if (!plainClick(event)) return;
+	event.preventDefault();
+	navigate(id);
+};

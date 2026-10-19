@@ -1,14 +1,23 @@
 import { fetchFile } from "@/lib/maps";
 import { COUNTRY_DEPTH } from "@/lib/pack.mjs";
-import type { SearchRow } from "@/types/map";
+import type { PlaceKind, SearchRow } from "@/types/map";
+
+/**
+ * A search row, and — should the index ever say — the kind of settlement it is as
+ * a fifth element. Today a place is told apart by its id alone (see `isPlaceId`).
+ */
+export type SearchHit = [...SearchRow, PlaceKind?];
+
+/** A place row's id is "<map id>/~n<osm node id>"; see `placeId`. */
+export const isPlaceId = (id: string) => /\/~n\d+$/.test(id);
 
 /** How many hits the list shows; more than this is a query worth narrowing. */
 const LIMIT = 40;
 
-const isSearchRows = (value: unknown): value is SearchRow[] =>
-	Array.isArray(value) && value.every((row) => Array.isArray(row) && row.length === 4);
+const isSearchRows = (value: unknown): value is SearchHit[] =>
+	Array.isArray(value) && value.every((row) => Array.isArray(row) && row.length >= 4);
 
-async function fetchRows(file: string): Promise<SearchRow[]> {
+async function fetchRows(file: string): Promise<SearchHit[]> {
 	const rows = await fetchFile(file);
 	if (!isSearchRows(rows)) throw new Error(`${file}.json is not a search index`);
 	return rows;
@@ -23,7 +32,7 @@ async function fetchRows(file: string): Promise<SearchRow[]> {
 export async function searchElsewhere(
 	mapId: string,
 	needle: string,
-): Promise<SearchRow[]> {
+): Promise<SearchHit[]> {
 	const parts = mapId.split("/");
 	const files = ["search"];
 	if (parts.length >= COUNTRY_DEPTH) {

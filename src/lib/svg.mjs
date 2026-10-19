@@ -12,15 +12,24 @@
  * @import { MapFile } from "../types/map"
  */
 
-/** Baked into every export, so a downloaded file looks like what was on screen. */
+/**
+ * Baked into every export, so a downloaded file looks like what was on screen in
+ * the light theme: warm land, a hairline of ink, a soft-blue sea for the PNG.
+ */
 export const STYLE = {
-	fill: "#efece5",
-	highlight: "#2f6d6a",
-	stroke: "#17191a",
-	strokeOpacity: "0.25",
+	fill: "#efeadc",
+	highlight: "#5457e8",
+	stroke: "#26304a",
+	strokeOpacity: "0.35",
 	strokeWidth: "1",
-	background: "#ffffff",
+	background: "#dbe7f2",
+	/** Settlement dots, by kind: city, town, village. */
+	place: ["#3b3fc4", "#0f8f8a", "#5d6b82"],
+	placeStroke: "#ffffff",
 };
+
+/** Dot radius in canvas units (the longest side is 1000), by kind. */
+const PLACE_RADIUS = [6, 4, 2.6];
 
 /** @type {Record<string, string>} */
 const ESCAPES = {
@@ -49,13 +58,47 @@ export function buildSvg(map) {
 		})
 		.join("\n");
 
-	const credit = `${map.name} — ${map.features.length} ${map.childLabel}. Source: ${map.source}. Licence: ${map.license}. Built with open-interactive-maps.`;
+	// A settlement map is one area: its outline goes in a group of its own, apart
+	// from the places that sit on it.
+	const outline = map.outline
+		? `\t<g id="outline" fill="${STYLE.fill}" fill-rule="evenodd" stroke="${STYLE.stroke}" stroke-opacity="${STYLE.strokeOpacity}" stroke-width="${STYLE.strokeWidth}" stroke-linejoin="round">
+\t\t<path d="${map.outline}" />
+\t</g>
+`
+		: "";
+
+	// Circles, not paths: an admin map's export must hold exactly one <path> per
+	// area, which is what scripts/check-maps.mjs counts.
+	const places = map.places?.length
+		? `\t<g id="places" stroke="${STYLE.placeStroke}" stroke-width="1">
+${[...map.places]
+	.sort((a, b) => b[1] - a[1])
+	.map(([name, kind, x, y]) => {
+		const fill = STYLE.place[kind] ?? STYLE.place[2];
+		return `\t\t<circle cx="${x}" cy="${y}" r="${PLACE_RADIUS[kind] ?? PLACE_RADIUS[2]}" fill="${fill}" data-name="${xml(name)}" />`;
+	})
+	.join("\n")}
+\t</g>
+`
+		: "";
+
+	const areas = paths
+		? `\t<g fill="${STYLE.fill}" fill-rule="evenodd" stroke="${STYLE.stroke}" stroke-opacity="${STYLE.strokeOpacity}" stroke-width="${STYLE.strokeWidth}" stroke-linejoin="round">
+${paths}
+\t</g>
+`
+		: "";
+
+	const count = map.outline
+		? `${map.places?.length ?? 0} settlements`
+		: `${map.features.length} ${map.childLabel}`;
+	const osm = map.places?.length
+		? ` Settlements: ${/OpenStreetMap/i.test(map.placesSource ?? "") ? map.placesSource : `© OpenStreetMap contributors${map.placesSource ? ` (${map.placesSource})` : ""}`}. Licence: ${map.placesLicense ?? "ODbL 1.0"}.`
+		: "";
+	const credit = `${map.name} — ${count}. Source: ${map.source}. Licence: ${map.license}.${osm} Built with open-interactive-maps.`;
 
 	return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${map.viewBox}" width="${map.width}" height="${map.height}" role="img" aria-label="Map of ${xml(map.name)}">
 	<title>${xml(map.name)}</title>
 	<desc>${xml(credit)}</desc>
-	<g fill="${STYLE.fill}" fill-rule="evenodd" stroke="${STYLE.stroke}" stroke-opacity="${STYLE.strokeOpacity}" stroke-width="${STYLE.strokeWidth}" stroke-linejoin="round">
-${paths}
-	</g>
-</svg>`;
+${outline}${areas}${places}</svg>`;
 }
