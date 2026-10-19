@@ -6,14 +6,36 @@ import "./globals.css";
 const ui = Geist({ subsets: ["latin"], variable: "--font-ui" });
 const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
+const TITLE = "Open Interactive Maps";
+const DESCRIPTION =
+	"Browse the administrative map of every country, from the world down to villages, and copy or download any of them as SVG, PNG or JSON. Boundaries from geoBoundaries, settlements from OpenStreetMap.";
+
+// The icon, apple-icon and opengraph-image files beside this one are picked up by
+// the app router; only what they cannot say is written here.
 export const metadata: Metadata = {
-	title: "Open Interactive Maps",
-	description:
-		"Browse the administrative map of every country, from the world down to villages, and copy or download any of them as SVG, PNG or JSON. Boundaries from geoBoundaries, settlements from OpenStreetMap.",
+	metadataBase: new URL("https://open-interactive-maps.vercel.app"),
+	title: TITLE,
+	description: DESCRIPTION,
+	openGraph: {
+		title: TITLE,
+		description: "Every map, from the globe to the village.",
+		siteName: TITLE,
+		type: "website",
+	},
+	twitter: {
+		card: "summary_large_image",
+		title: TITLE,
+		description: "Every map, from the globe to the village.",
+	},
 };
 
+// The browser chrome takes the sea the page is drawn on (--bg in globals.css).
 export const viewport: Viewport = {
 	colorScheme: "light dark",
+	themeColor: [
+		{ media: "(prefers-color-scheme: light)", color: "#c0e0e5" },
+		{ media: "(prefers-color-scheme: dark)", color: "#03181e" },
+	],
 };
 
 /**

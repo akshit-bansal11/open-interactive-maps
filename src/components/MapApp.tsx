@@ -8,12 +8,12 @@ import { GlobeCanvas } from "@/components/GlobeCanvas";
 import {
 	CloseIcon,
 	GithubIcon,
-	LogoMark,
 	PanelIcon,
 	SearchIcon,
 	WarningIcon,
 } from "@/components/Icons";
 import { Ladder } from "@/components/Ladder";
+import { Logo } from "@/components/Logo";
 import { MapCanvas } from "@/components/MapCanvas";
 import { PlaceCard } from "@/components/PlaceCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -232,9 +232,11 @@ export function MapApp() {
 			</main>
 
 			<header className="hud card">
-				<a className="brand" href="/" onClick={follow("world")}>
-					<LogoMark width={22} height={22} />
-					<span>{SITE}</span>
+				<a className="brand" href="/" onClick={follow("world")} aria-label={SITE}>
+					<Logo />
+					<span className="wordmark">
+						<span className="open">Open</span> <strong>Interactive Maps</strong>
+					</span>
 				</a>
 				<button
 					type="button"
