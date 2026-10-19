@@ -53,7 +53,7 @@ jobs:
       # last one's downloads: boundaries, and the OpenStreetMap place lists in
       # .cache/<ISO3>-places.tsv that a build re-fetches only after 25 days.
       - name: Restore boundary downloads
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .cache
           key: boundaries-${{ github.run_id }}
@@ -80,7 +80,7 @@ jobs:
       # that fails later does not have to fetch everything again.
       - name: Save boundary downloads
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .cache
           key: boundaries-${{ github.run_id }}
