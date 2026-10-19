@@ -81,6 +81,20 @@
 	--land-2: light-dark(#efe3d2, #182139);
 	--land-3: light-dark(#dde9e5, #26324f);
 	--land-line: light-dark(rgb(36 46 78 / 0.42), rgb(176 190 255 / 0.26));
+	/* The world globe: a lit sea, the air around it, and the shading that rounds it. */
+	--globe-sea-hi: light-dark(#a4cbee, #172a52);
+	--globe-sea-mid: light-dark(#73a8d8, #0d1a38);
+	--globe-sea-lo: light-dark(#477db4, #060b1b);
+	--globe-glow: light-dark(rgb(92 156 232 / 0.5), rgb(112 130 255 / 0.36));
+	--globe-limb: light-dark(rgb(14 40 92 / 0.55), rgb(2 4 14 / 0.5));
+	--globe-shine: light-dark(rgb(255 255 255 / 0.55), rgb(190 205 255 / 0.16));
+	--globe-grid: light-dark(rgb(255 255 255 / 0.3), rgb(160 180 255 / 0.1));
+	--globe-rim: light-dark(rgb(24 64 124 / 0.4), rgb(170 185 255 / 0.28));
+	/* Land in the dark has to stand off a sea that is darker than the flat map's. */
+	--globe-land-0: light-dark(var(--land-0), #36456f);
+	--globe-land-1: light-dark(var(--land-1), #3d4d7a);
+	--globe-land-2: light-dark(var(--land-2), #313f68);
+	--globe-land-3: light-dark(var(--land-3), #44547f);
 	--city: light-dark(#e0446a, #ff6f91);
 	--town: light-dark(#1a8f87, #4fd6c8);
 	--village: light-dark(#5a6a86, #9fb0d4);
@@ -652,6 +666,83 @@ blockquote {
 	stroke-width: 1.5px;
 	pointer-events: none;
 	cursor: default;
+}
+
+/*
+ * The world as a globe. It shares the flat map's land tones and its accent
+ * highlight (the `data-tone` and `data-on` rules above); these only undo what
+ * suits a flat, stroked map. Land is filled with no stroke and nonzero, because
+ * its rings are separate polygons that overlap rather than holes, and the
+ * coastline is a line of its own so the seams the flat map was cut along are
+ * never stroked.
+ */
+.canvas.globe {
+	/* Zoomed in, the globe fills the whole stage and runs on under the cards. */
+	overflow: hidden;
+}
+
+.canvas.globe > svg {
+	overflow: visible;
+	fill-rule: nonzero;
+}
+
+.canvas.globe > svg .land path {
+	stroke: none;
+}
+
+.canvas.globe > svg .land path[data-tone="0"] {
+	fill: var(--globe-land-0);
+}
+
+.canvas.globe > svg .land path[data-tone="1"] {
+	fill: var(--globe-land-1);
+}
+
+.canvas.globe > svg .land path[data-tone="2"] {
+	fill: var(--globe-land-2);
+}
+
+.canvas.globe > svg .land path[data-tone="3"] {
+	fill: var(--globe-land-3);
+}
+
+.canvas.globe > svg .land path[data-tone][data-on] {
+	fill: var(--accent);
+	stroke: none;
+}
+
+.canvas.globe > svg .globe-coast path,
+.canvas.globe > svg .globe-grid {
+	fill: none;
+	stroke-linecap: round;
+	pointer-events: none;
+	cursor: inherit;
+}
+
+.canvas.globe > svg .globe-coast path {
+	stroke: var(--land-line);
+	stroke-width: 0.75px;
+}
+
+.canvas.globe > svg .globe-grid {
+	stroke: var(--globe-grid);
+	stroke-width: 0.6px;
+}
+
+.canvas.globe > svg circle {
+	stroke: none;
+	pointer-events: none;
+}
+
+.canvas.globe > svg .globe-rim {
+	fill: none;
+	stroke: var(--globe-rim);
+	stroke-width: 1px;
+}
+
+.canvas.globe > svg .labels text {
+	letter-spacing: 0.02em;
+	font-weight: 600;
 }
 
 /*
