@@ -109,4 +109,4 @@ jobs:
       # If this is what fails, it is that ceiling arriving, not a flake — and the
       # settlement maps are what grew it. The report above shows the total.
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
