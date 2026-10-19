@@ -3,7 +3,11 @@ name: Build and publish map data
 # The maps are built here and published to GitHub Pages as plain JSON; the app on
 # Vercel fetches them. Not built on the host: a full build is about a thousand
 # downloads, and hundreds of megabytes of maps do not belong in a deployment
-# bundle. A full run takes about ten minutes.
+# bundle. A cold run takes a few hours, nearly all of it the settlement layer:
+# one Overpass query per country, about a second apart, plus the ones that are
+# slow to answer. A warm one (boundary downloads and .cache/*-places.tsv restored
+# from the cache, which keeps places for 25 days) takes about ten minutes. Cities,
+# towns and villages are on by default; MAPS_PLACES=0 would build boundaries only.
 on:
   push:
     branches: [main]
@@ -36,7 +40,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
 
@@ -46,7 +50,8 @@ jobs:
           cache: npm
 
       # A hit here makes the data step mostly offline. Each run starts from the
-      # last one's downloads.
+      # last one's downloads: boundaries, and the OpenStreetMap place lists in
+      # .cache/<ISO3>-places.tsv that a build re-fetches only after 25 days.
       - name: Restore boundary downloads
         uses: actions/cache/restore@v4
         with:
@@ -68,6 +73,8 @@ jobs:
           COUNTRIES: ${{ inputs.countries }}
           # India's villages are one 467 MB file; the runner has 16 GB.
           MAPS_HEAP_MB: 12288
+          # The settlement layer. Set to 0 for boundaries only.
+          MAPS_PLACES: 1
 
       # Saved before the check and whether or not the build finished, so a run
       # that fails later does not have to fetch everything again.
@@ -85,6 +92,7 @@ jobs:
           echo "files:    $(find data -name '*.json' | wc -l)"
           echo "bytes:    $(find data -type f -printf '%s\n' | awk '{s+=$1} END {print s}')"
           echo "largest:  $(find data -type f -printf '%s %p\n' | sort -n | tail -1)"
+          echo "places:   $(jq -r '"\(.places) (\(.placesFailed | length) countries without)"' data/index.json)"
 
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -98,6 +106,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       # Pages publishes at most 1 GB and times the deploy step out at 10 minutes.
-      # If this is what fails, it is that ceiling arriving, not a flake.
+      # If this is what fails, it is that ceiling arriving, not a flake — and the
+      # settlement maps are what grew it. The report above shows the total.
       - id: deployment
         uses: actions/deploy-pages@v4

@@ -3,13 +3,16 @@
  *
  * Guards the things that have actually gone wrong: areas silently vanishing,
  * children filed under the wrong parent, a map that doesn't fill its canvas,
- * and links that point at a file nobody wrote.
+ * and links that point at a file nobody wrote. Settlements get the same
+ * treatment: a place off its canvas, listed twice, or searched for in a map that
+ * does not list it.
  */
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileOf, isPacked } from "../src/lib/pack.mjs";
 import { buildSvg } from "../src/lib/svg.mjs";
+import { PLACE_CAP } from "./lib/places.mjs";
 
 const DATA = "data";
 const readFile = (id) => JSON.parse(readFileSync(join(DATA, `${id}.json`), "utf8"));
@@ -47,6 +50,7 @@ function points(d) {
 let maps = 0;
 let areas = 0;
 let unplotted = 0;
+let places = 0;
 
 /**
  * Problems found on the walk are collected rather than thrown: there are tens
@@ -63,20 +67,91 @@ function checkMap(id, expectedName) {
 	}
 }
 
+/**
+ * Every place on a map: a 6-tuple of name, kind, x, y, population and OSM node
+ * id, on the canvas, once each. An admin map carries cities and towns only, and
+ * no more than the cap; a settlement map carries whatever its area holds.
+ */
+function checkPlaces(map, settlement) {
+	const id = map.id;
+	assert.ok(Array.isArray(map.places), `${id}: places is not a list`);
+	if (!settlement) {
+		assert.ok(
+			map.places.length <= PLACE_CAP,
+			`${id}: lists ${map.places.length} places, over the cap of ${PLACE_CAP}`,
+		);
+	}
+	assert.ok(map.placesSource && map.placesLicense, `${id}: places without a credit`);
+
+	const seen = new Set();
+	for (const place of map.places) {
+		assert.ok(
+			Array.isArray(place) && place.length === 6,
+			`${id}: place is not a 6-tuple: ${JSON.stringify(place)}`,
+		);
+		const [name, kind, x, y, population, osm] = place;
+		assert.ok(name && typeof name === "string", `${id}: unnamed place ${osm}`);
+		assert.ok([0, 1, 2].includes(kind), `${id}: ${name} has kind ${kind}`);
+		if (!settlement) {
+			assert.ok(kind < 2, `${id}: ${name} is a village on an admin map`);
+		}
+		assert.ok(Number.isFinite(x) && Number.isFinite(y), `${id}: ${name} has no position`);
+		assert.ok(
+			x >= 0 && x <= map.width && y >= 0 && y <= map.height,
+			`${id}: ${name} at ${x},${y} is outside the ${map.width}×${map.height} canvas`,
+		);
+		assert.ok(
+			Number.isInteger(population) && population >= 0,
+			`${id}: ${name} has population ${population}`,
+		);
+		assert.ok(Number.isInteger(osm) && osm > 0, `${id}: ${name} has OSM id ${osm}`);
+		assert.ok(!seen.has(osm), `${id}: place ${osm} (${name}) is listed twice`);
+		seen.add(osm);
+		places++;
+	}
+}
+
 function checkOne(id, expectedName) {
 	const map = read(id);
 	maps++;
 
 	assert.equal(map.id, id, `${id}: id mismatch`);
 	if (expectedName) assert.equal(map.name, expectedName, `${id}: name mismatch`);
-	assert.ok(map.features.length > 0, `${id}: no features`);
 	assert.equal(map.viewBox, `0 0 ${map.width} ${map.height}`);
+
+	// A settlement map has no areas to draw: its one shape is the outline of the
+	// area it lists settlements for, and the places are the point of it.
+	const settlement = map.outline !== undefined;
+	if (settlement) {
+		assert.equal(map.features.length, 0, `${id}: a settlement map has no features`);
+		assert.ok(map.places?.length > 0, `${id}: a settlement map with no places`);
+		assert.equal(map.childLabel, "Settlements", `${id}: wrong child label`);
+		assert.match(map.outline, PATH, `${id}: malformed outline`);
+	} else {
+		assert.ok(map.features.length > 0, `${id}: no features`);
+	}
+	if (map.places !== undefined) checkPlaces(map, settlement);
 
 	const slugs = new Set();
 	let minX = Infinity;
 	let minY = Infinity;
 	let maxX = -Infinity;
 	let maxY = -Infinity;
+
+	/** Folds a path's points into the extent, checking each is on the canvas. */
+	const extend = (d, label) => {
+		for (const [x, y] of points(d)) {
+			assert.ok(
+				x >= 0 && x <= map.width && y >= 0 && y <= map.height,
+				`${label}: point ${x},${y} outside the ${map.width}×${map.height} canvas`,
+			);
+			if (x < minX) minX = x;
+			if (y < minY) minY = y;
+			if (x > maxX) maxX = x;
+			if (y > maxY) maxY = y;
+		}
+	};
+	if (settlement) extend(map.outline, `${id}: outline`);
 
 	for (const feature of map.features) {
 		areas++;
@@ -91,16 +166,7 @@ function checkOne(id, expectedName) {
 			unplotted++;
 		} else {
 			assert.match(feature.d, PATH, `${feature.id}: malformed path`);
-			for (const [x, y] of points(feature.d)) {
-				assert.ok(
-					x >= 0 && x <= map.width && y >= 0 && y <= map.height,
-					`${feature.id}: point ${x},${y} outside the ${map.width}×${map.height} canvas`,
-				);
-				if (x < minX) minX = x;
-				if (y < minY) minY = y;
-				if (x > maxX) maxX = x;
-				if (y > maxY) maxY = y;
-			}
+			extend(feature.d, feature.id);
 		}
 
 		if (feature.children > 0) {
@@ -140,6 +206,14 @@ assert.ok(
 	index.failed.length <= 5,
 	`${index.failed.length} countries failed to build: ${index.failed.join("; ")}`,
 );
+// Settlements are best-effort: a country whose Overpass fetch failed is built
+// without them. A pattern of that is the service being down, and a build with no
+// cities in it should not replace one that had them.
+assert.ok(Array.isArray(index.placesFailed), "index.json lists no placesFailed");
+assert.ok(
+	index.placesFailed.length <= Math.max(5, index.countries.length / 2),
+	`${index.placesFailed.length} countries have no settlements: ${index.placesFailed.join(", ")}`,
+);
 for (const country of index.countries) {
 	assert.ok(has(country.id), `index lists ${country.id} but no map file exists`);
 	assert.match(
@@ -177,10 +251,29 @@ for (const continent of index.continents) {
 const parentOf = (id) => id.split("/").slice(0, -1).join("/");
 let searchable = 0;
 for (const file of ["search", ...index.countries.map((c) => `${c.id}.search`)]) {
+	// A place row is "<map id>/~n<osm id>": its map has to exist and list it. The
+	// rows are checked map by map, in id order, so each pack is read once rather
+	// than once per row.
+	const listed = new Map();
 	for (const [name, id, , drillable] of readFile(file)) {
 		searchable++;
+		const marker = id.indexOf("/~n");
+		if (marker !== -1) {
+			const mapId = id.slice(0, marker);
+			if (!listed.has(mapId)) listed.set(mapId, []);
+			listed.get(mapId).push([name, Number(id.slice(marker + 3))]);
+			continue;
+		}
 		const target = drillable ? id : parentOf(id);
 		assert.ok(has(target), `${file}: "${name}" → ${target} missing`);
+	}
+
+	for (const [mapId, wanted] of [...listed].sort(([a], [b]) => (a < b ? -1 : 1))) {
+		assert.ok(has(mapId), `${file}: places point at ${mapId}, which has no map`);
+		const osmIds = new Set((read(mapId).places ?? []).map((place) => place[5]));
+		for (const [name, osm] of wanted) {
+			assert.ok(osmIds.has(osm), `${file}: "${name}" (${osm}) is not listed on ${mapId}`);
+		}
 	}
 }
 
@@ -278,6 +371,18 @@ if (has(talwandi)) {
 	);
 }
 
+// Settlements, when they were built (a MAPS_PLACES=0 build has none, and so does
+// one where India's Overpass fetch failed): Punjab is the state with the most
+// cities anyone would look for first. Gurmukhi spellings for the case OSM's
+// `name` is the local one.
+if (index.places > 0 && !index.placesFailed.includes("IND")) {
+	const punjab = read(`${INDIA}/punjab`);
+	assert.ok(
+		punjab.places?.some(([name]) => /ludhiana|amritsar|ਲੁਧਿਆਣਾ|ਅੰਮ੍ਰਿਤਸਰ/i.test(name)),
+		"Punjab should list Ludhiana or Amritsar among its places",
+	);
+}
+
 // The export has to stand on its own: well-formed, self-describing, and with
 // nothing of the viewer left in it.
 const exported = buildSvg(read(`${INDIA}/punjab/bathinda`));
@@ -296,6 +401,6 @@ assert.equal(
 assert.ok(exported.includes("Talwandi Sabo"), "export lost its area names");
 
 console.log(
-	`ok — ${maps} maps, ${areas} areas, ${index.countries.length} countries, ${searchable} search entries` +
+	`ok — ${maps} maps, ${areas} areas, ${places} places, ${index.countries.length} countries, ${searchable} search entries` +
 		(unplotted ? `, ${unplotted} sub-pixel at their parent's scale` : ""),
 );
